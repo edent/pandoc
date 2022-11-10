@@ -41,7 +41,8 @@ import Text.Pandoc.App.Opt (Opt (..))
 import Text.Pandoc.App.CommandLineOptions (engines, setVariable)
 import qualified Text.Pandoc.Format as Format
 import Text.Pandoc.Highlighting (lookupHighlightingStyle)
-import Text.Pandoc.Scripting (ScriptingEngine (engineWriteCustom))
+import Text.Pandoc.Scripting (ScriptingEngine (engineLoadCustom),
+                              CustomComponents(..))
 import qualified Text.Pandoc.UTF8 as UTF8
 
 readUtf8File :: PandocMonad m => FilePath -> m T.Text
@@ -125,9 +126,19 @@ optToOutputSettings scriptingEngine opts = do
   (writer, writerExts, mtemplate) <-
     if "lua" `T.isSuffixOf` format
     then do
-      (w, extsConf, mt) <- engineWriteCustom scriptingEngine (T.unpack format)
+      components <- engineLoadCustom scriptingEngine (T.unpack format)
+      w <- case customWriter components of
+             Nothing -> throwError $ PandocAppError $
+                         format <> " does not contain a custom writer"
+             Just w -> return w
+      let extsConf = fromMaybe mempty
+                       $ customExtensions components
       wexts <- Format.applyExtensionsDiff extsConf flvrd
-      templ <- processCustomTemplate mt
+      templ <- processCustomTemplate
+                  (case customTemplate components of
+                     Nothing -> throwError $ PandocAppError $
+                        format <> " does not define a custom template"
+                     Just tpl -> return tpl)
       return (w, wexts, templ)
     else do
       tmpl <- processCustomTemplate (compileDefaultTemplate format)
